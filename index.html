@@ -176,13 +176,14 @@
 
 <div class="wrap">
   <header class="hero">
-    <div class="eyebrow"><b>Project Diablo 2</b> · standalone Windows editor · v1.0</div>
+    <div class="eyebrow"><b>Project Diablo 2</b> · standalone Windows editor · v1.1</div>
     <h1>PD2 <span>Sprite</span> Studio</h1>
     <p class="pitch">
       An editor for Diablo II / Project Diablo 2 graphics that reads straight from the game's MPQ archives.
       You can <strong>edit character, monster and item sprites pixel by pixel</strong> in the game palettes,
       <strong>turn 3D models into animated sprites</strong>, and <strong>cut 3D scenes from Blender or 3ds Max into DT1 map tiles
-      and a DS1 map piece</strong>. Everything saves back out in the game's own formats.
+      and a DS1 map piece</strong>. Everything saves back out in the game's own formats, and <strong>AI assistants can drive it over MCP</strong>
+      while you watch.
     </p>
     <div class="formats" aria-label="Formats handled">
       <span><b>MPQ</b> read</span>
@@ -194,6 +195,7 @@
       <span><b>animdata.d2</b> read</span>
       <span><b>FBX · GLB · OBJ</b> import</span>
       <span><b>PNG · JPEG · GIF</b> export</span>
+      <span><b>MCP</b> server</span>
     </div>
     <div class="hero-shot"><img src="screenshots/04-editor.png" alt="The sprite editor with the Barbarian's attack animation open: tool rail on the left, body parts on the right, frames and facing at the bottom, and a live preview." width="1600" height="940"></div>
   </header>
@@ -205,6 +207,7 @@
     <a href="#proof">Format accuracy</a>
     <a href="#how">How it works</a>
     <a href="#tiles">Tile Maker pipeline</a>
+    <a href="#ai">AI assistants</a>
     <a href="#limits">Known limits</a>
     <a href="#run">Running it</a>
     <a href="#refs">References</a>
@@ -253,12 +256,12 @@
         <figcaption><b>3D Studio (three.js).</b> Load FBX, GLB or OBJ with animations, attach props to bones, and preview in the game's colours on the current body. One click renders every facing × frame straight into a body part (16 × 16 in about 1.6 s).</figcaption>
       </figure>
       <figure>
-        <button type="button" data-full="screenshots/11-tile-maker.png"><img src="screenshots/11-tile-maker.png" alt="Tile Maker with an imported chapel scene on the isometric map grid, with import, line-up and parts steps." loading="lazy" width="1600" height="940"></button>
-        <figcaption><b>Tile Maker.</b> Import a scene from Blender or 3ds Max, line it up with the tile grid, and give each part the role floor, wall or roof.</figcaption>
+        <button type="button" data-full="screenshots/11-tile-maker.png"><img src="screenshots/11-tile-maker.png" alt="Tile Maker with an imported plateau coloured by role: green floor, gold wall, blue lower-wall cliffs below the ground, with the role legend." loading="lazy" width="1600" height="940"></button>
+        <figcaption><b>Tile Maker.</b> Import a scene from Blender or 3ds Max, line it up with the tile grid, and give each part a role: floor, wall, lower wall (cliffs, platform sides) or roof. A legend explains each role and the scene can be coloured by role; here a plateau's sides became lower walls on their own.</figcaption>
       </figure>
       <figure>
         <button type="button" data-full="screenshots/12-tile-maker-result.png"><img src="screenshots/12-tile-maker-result.png" alt="Tile Maker result: the map piece rendered by game rules, with tile counts and the DT1 files to be written." loading="lazy" width="1600" height="940"></button>
-        <figcaption><b>Split result.</b> The map piece is drawn from the generated DT1s and DS1 using the game's placement rules, then saved as <code>_floor</code>, <code>_walls</code> and <code>_roof</code> DT1s plus a <code>.ds1</code>.</figcaption>
+        <figcaption><b>Split result.</b> The map piece is drawn from the generated DT1s and DS1 using the game's placement rules, then saved as <code>_floor</code>, <code>_walls</code> and <code>_roof</code> DT1s plus a <code>.ds1</code>. The cliff faces are lower-wall tiles (orientations 16/17), drawn before the floor as the game does.</figcaption>
       </figure>
     </div>
   </div>
@@ -286,7 +289,8 @@
             <tr><td>DCC animations (sampled), decode → encode → decode</td><td class="n"><span class="ok">251 / 251</span> pixel-identical</td></tr>
             <tr><td>DT1 tile sets (v7), decode and re-encode</td><td class="n"><span class="ok">372 / 372</span> (221 byte-exact)</td></tr>
             <tr><td>DS1 map presets, decode and re-encode</td><td class="n"><span class="ok">2,593 / 2,593</span> (2,541 byte-exact)</td></tr>
-            <tr><td>Tile Maker: synthetic scene → DT1 + DS1 → re-rendered</td><td class="n"><span class="ok">150,486 / 150,486</span> px</td></tr>
+            <tr><td>Tile Maker: synthetic scene → DT1 + DS1 → re-rendered</td><td class="n"><span class="ok">208,566 / 208,566</span> px</td></tr>
+            <tr><td>MCP server: protocol, tools, origin check and stdio bridge against the running app</td><td class="n"><span class="ok">13 / 13</span> checks</td></tr>
             <tr><td>DCC growth edit keeps untouched art lossless (cell-grid anchoring)</td><td class="n"><span class="ok">0 px</span> changed</td></tr>
           </tbody>
         </table>
@@ -344,11 +348,63 @@
     <p class="lede">The old way was to render a scene and cut the walls into tiles by hand. This does the cutting automatically.</p>
     <ol class="pipeline">
       <li><span><b>Import and line up.</b> The model is set on the grid at “1 tile = N units” (auto-guessed for Blender metres or 3ds Max centimetres). You can stand Z-up models upright, turn them in 90° steps and move them by whole tiles.</span></li>
-      <li><span><b>Render layers.</b> Floor, wall and roof parts render separately through the exact tile camera, where world <code>(X, Y, Z)</code> maps to pixels as <code>((X−Z)·80, (X+Z)·40 − Y·98)</code>. A float render target also records each wall pixel's world position.</span></li>
-      <li><span><b>Slice.</b> Floors are sampled into the 25 diamond blocks per 160×80 tile. Each wall pixel goes to the nearest grid edge: near X = n gives a left wall (orientation 1), near Z = n gives a right wall (orientation 2). Roofs become orientation-15 tiles raised to their height.</span></li>
+      <li><span><b>Render layers.</b> Floor, wall, lower-wall and roof parts render separately through the exact tile camera, where world <code>(X, Y, Z)</code> maps to pixels as <code>((X−Z)·80, (X+Z)·40 − Y·98)</code>. A float render target also records each wall pixel's world position and which way its surface faces.</span></li>
+      <li><span><b>Slice.</b> Floors are sampled into the 25 diamond blocks per 160×80 tile. Each wall pixel goes to the grid line its surface runs along (the nearest line for flat tops): X = n gives a left wall (orientation 1), Z = n gives a right wall (orientation 2). Wall geometry below the ground becomes lower walls (16/17, directions 6/7). Roofs become orientation-15 tiles raised to their height.</span></li>
       <li><span><b>Walkability.</b> Low wall geometry marks the subtile it stands on as blocked (<code>0x07</code>), stored in the same row order the game's tiles use.</span></li>
-      <li><span><b>Write.</b> Identical tiles are shared, then indexes are assigned from a chosen start (64 per main index). It writes DT1 v7/6 files split by kind, plus a DS1 v18 map piece listing them, with floors in layer 1, left and right walls in wall layers 1–2 and roofs in wall layer 3.</span></li>
+      <li><span><b>Write.</b> Identical tiles are shared, then indexes are assigned from a chosen start (64 per main index). It writes DT1 v7/6 files split by kind, plus a DS1 v18 map piece listing them, with floors in layer 1 and walls, lower walls and roofs filling up to 4 wall layers.</span></li>
     </ol>
+  </div>
+</section>
+
+<section id="ai">
+  <div class="wrap">
+    <h2>AI assistants (MCP)</h2>
+    <p class="lede">
+      New in 1.1: the app can serve the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>, so an assistant such as Claude
+      can work in the open app while you watch. Every change goes through the same code as the UI: it shows up live, is one undo step, and
+      exports like a hand edit. Tool results include pictures (the frame, a sheet, or the map drawn with the game's rules), so the assistant
+      can check its own work.
+    </p>
+    <div class="screens">
+      <figure>
+        <button type="button" data-full="screenshots/16-ai-settings.png"><img src="screenshots/16-ai-settings.png" alt="Settings with the AI assistants section: an on/off switch, the running address, and copyable setup for Claude Code and Claude Desktop." loading="lazy" width="1600" height="940"></button>
+        <figcaption><b>Turning it on.</b> Off by default. When it's on, Settings shows a one-line setup for Claude Code and a config block for Claude Desktop.</figcaption>
+      </figure>
+      <figure>
+        <button type="button" data-full="screenshots/17-ai-tile-scene.png"><img src="screenshots/17-ai-tile-scene.png" alt="Tile Maker scene built entirely through MCP tool calls: floor, two walls with a doorway, a pillar, and cliffs, coloured by role." loading="lazy" width="1600" height="940"></button>
+        <figcaption><b>A scene built by tool calls.</b> Floor slabs, walls with a doorway, a pillar and cliffs, added with <code>tiles_add_block</code>. Parts below the ground became lower walls automatically.</figcaption>
+      </figure>
+    </div>
+    <div class="cols" style="margin-top:22px">
+      <div class="card">
+        <div class="tag">Sprites</div>
+        <h3>Find, edit, export</h3>
+        <ul>
+          <li><code>search_sprites</code>, <code>open_animation</code>, <code>open_item</code>, <code>set_layer</code> (body part, style, new style code)</li>
+          <li><code>view_frame</code>, <code>view_sheet</code>, <code>read_pixels</code>, <code>palette</code> (nearest colours, shading ramps)</li>
+          <li><code>recolor_material</code>, <code>replace_color</code>, <code>hsv_shift</code>, <code>draw_pixels</code>, <code>draw_shape</code>, <code>outline</code>, <code>import_image</code></li>
+          <li><code>transfer_edits</code> carries one frame's edit through the animation; <code>undo</code> / <code>redo</code>; <code>export_pd2</code>, <code>export_image</code></li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="tag">Tile Maker</div>
+        <h3>Build and split scenes</h3>
+        <ul>
+          <li><code>tiles_add_block</code> (box, cylinder, cone, sphere, ramp in tile units) or <code>tiles_import_model</code></li>
+          <li><code>tiles_list_parts</code>, <code>tiles_set_role</code>, <code>tiles_settings</code>, <code>tiles_clear</code></li>
+          <li><code>tiles_split</code> returns tile counts and the map as the game draws it; <code>tiles_save</code> writes the DT1s and DS1</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="tag">Connection</div>
+        <h3>Local only</h3>
+        <ul>
+          <li>Streamable HTTP on <code>127.0.0.1:41730/mcp</code>; requests from web pages (other origins or hosts) are refused</li>
+          <li>Claude Desktop and other stdio clients use a bundled bridge run by the app's own executable, so nothing else needs installing</li>
+          <li>Plus <code>get_state</code>, <code>go_to_screen</code> and <code>screenshot_app</code></li>
+        </ul>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -359,7 +415,8 @@
     <ul class="limits">
       <li><b>Not yet tested in the game.</b> The exported DCC, DC6, DT1 and DS1 files are verified by decoding and re-rendering only. They still need a run in PD2 single player (PlugY / <code>-direct -txt</code>) and in ds1-studio.</li>
       <li><b>Online use is unconfirmed.</b> PD2's rules forbid tools that “tamper with the game”; whether client-side graphics changes count hasn't been asked yet.</li>
-      <li><b>Tile types.</b> Only floors, left/right walls and roofs are generated. Corners, doors, lower walls, shadows and animated tiles are not yet.</li>
+      <li><b>Tile types.</b> Floors, left/right walls, lower walls and roofs are generated. Corners, doors, shadows and animated tiles are not yet.</li>
+      <li><b>AI assistants work best with the high-level tools.</b> Recolours, edit transfer, clean-up and Tile Maker scenes come out well; pixel art drawn from scratch by an assistant is rough. While the MCP switch is on, any program on the PC can drive the app.</li>
       <li><b>DCC 4-colour cells.</b> Cells with more than 4 colours (common in 3D shading) are reduced at export. The editor flags them in red.</li>
       <li><b>No real Blender or 3ds Max files tested yet.</b> Tests used equivalent GLB and OBJ written by scripts. Draco-compressed GLB isn't supported.</li>
       <li><b>Walk flags and cell values are inferred.</b> The subtile flag layout and DS1 “tile present” values copy patterns found in the game's files, not a published spec.</li>
@@ -373,7 +430,7 @@
     <div class="run">
       <div>
         <p style="margin-bottom:14px">
-          The Windows installer (<code>PD2-Sprite-Studio-Setup-1.0.0.exe</code>, about 95 MB, unsigned) installs per-user with Start menu
+          The Windows installer (<code>PD2-Sprite-Studio-Setup-1.1.0.exe</code>, about 95 MB, unsigned) installs per-user with Start menu
           and desktop shortcuts. On first run it looks for the game in <code>C:\Program Files\Diablo II</code> and its
           <code>ProjectD2</code> folder; other locations can be set in Settings. It never modifies the game install:
           exports go to a separate folder with the game's own <code>data\global\…</code> layout.
@@ -384,6 +441,7 @@
 npm install
 npm run dev          <span class="c"># run with hot reload</span>
 npm test             <span class="c"># format round-trips against your game files</span>
+node scripts/testMcp.cjs  <span class="c"># MCP server end to end (after npm run build)</span>
 npm run dist         <span class="c"># build the Windows installer → release/</span>
 npx tsx scripts/webdev.ts   <span class="c"># UI in a browser on :5198</span></pre>
     </div>
@@ -404,11 +462,12 @@ npx tsx scripts/webdev.ts   <span class="c"># UI in a browser on :5198</span></p
       <li><a href="http://d2mods.info/forum/viewtopic.php?t=14662">How to make a 3D model be used by Diablo II</a><span>The Phrozen Keep tutorial (camera setup)</span></li>
       <li><a href="https://github.com/eezstreet/DT1-Tools">DT1-Tools</a><span>Paul Siramy's DT1 tools, 64-bit port</span></li>
       <li><a href="https://github.com/RoofooEvazan/ds1-studio">ds1-studio</a><span>DS1 map and DT1 library editor. Tile Maker output opens here.</span></li>
+      <li><a href="https://modelcontextprotocol.io">Model Context Protocol</a><span>How AI assistants connect to the app</span></li>
       <li><a href="https://threejs.org">three.js</a><span>3D engine for the 3D Studio and Tile Maker</span></li>
       <li><a href="https://www.electronjs.org">Electron</a><span>Desktop shell</span></li>
       <li><a href="https://www.projectdiablo2.com/rules">Project Diablo 2 rules</a><span>Read before any online use</span></li>
     </ul>
-    <footer>PD2 Sprite Studio 1.0 · Uses your own game files; no Blizzard or PD2 assets are distributed with it.</footer>
+    <footer>PD2 Sprite Studio 1.1 · Uses your own game files; no Blizzard or PD2 assets are distributed with it.</footer>
   </div>
 </section>
 
